@@ -1,0 +1,272 @@
+##loading packages and libraries
+install.packages("mvtnorm")
+install.packages("MASS")
+install.packages("urca")
+install.packages("vars")
+install.packages("sandwitch")
+install.packages("MTS")
+install.packages("lattice")
+install.packages("zoo")
+install.packages("googleVis")
+install.packages("joineR")
+install.packages("timetk")
+install.packages("tidyquant")
+install.packages("cranlogs")
+install.packages("forecast")
+install.packages("car")
+install.packages("rugarch")
+install.packages("plotrix")
+
+library(plotrix)
+library(ggplot2) #for creation of plots
+library(forecast) #for making forecasts
+library(plotly) #to visualize the prediction
+library(ggfortify) #it concerns visualization of plots
+library(gridExtra) #it concerns visualization of plots
+library(TTR) 
+library(RCurl)
+library(Rblpapi)
+library(quantmod)
+library(devtools)
+library(PerformanceAnalytics)
+library(tseries) #
+library(mvtnorm)
+library(MASS)
+library(urca)
+library(vars)
+library(sandwich)
+library(grid)
+library(lattice)
+library(latticeExtra)
+library(zoo)
+library(googleVis)
+library(xts)
+library(joineR)
+library(ggplot2)
+library(ggExtra)
+library(timetk)
+library(tidyquant)
+library(cranlogs)
+library(forecast)
+library(car)
+library(rugarch)
+###
+
+prediction=function(data)
+{
+  log.data  = log(data)
+  var.fit  = VAR(log.data, lag.max=6)
+  K = as.numeric(var.fit$p)
+  if (K<2) {
+    K = 2
+  }
+  coint.rc  = ca.jo(log.data,type="eigen",ecdet="const",K)
+  v2v  = vec2var(coint.rc,r=1)
+  pred.vecm  = predict(v2v,n.ahead=1)
+  
+  n  = ncol(data)
+  forecast  = matrix(unlist(pred.vecm$fcst, use.names=FALSE),nrow=4)[1,] 
+  ex.ret  = forecast-last(log.data) 
+  
+  return(ex.ret)
+}
+
+computationofweights=function(sdata,obstart,wl,q){
+  n.col  = ncol(sdata)
+  
+  log.data = log(sdata)
+  log.variation = diff(log.data)
+  log.ret = na.omit(log.variation)
+  
+  
+  expected.return = prediction(sdata)
+  sigma = var(log.ret,na.rm=T)
+  unitvec = rep(1,n.col)
+  a = t(unitvec)%*%solve(sigma)%*%unitvec
+  b = t(unitvec)%*%solve(sigma)%*%expected.return
+  w.q = (solve(sigma)%*%unitvec)/as.numeric(a)+q*(solve(sigma)%*%(expected.return-(as.numeric(b)/as.numeric(a))))
+  #print(expected.return)
+  #print((as.numeric(b)/as.numeric(a)))
+  #print(expected.return-(as.numeric(b)/as.numeric(a)))
+  #print(sigma) #low value of variance
+  #print(solve(sigma)) #high value of the inverse of the variance
+  #print(unitvec) 
+  #print(solve(sigma)%*%unitvec)
+  #print(solve(sigma)%*%(expected.return-(as.numeric(b)/as.numeric(a))))
+  return(w.q)
+  
+}
+
+
+
+#firstempt1=computingweight(time.series,0,200,1,method="ordinary")
+
+
+equalweights=function(data)
+{        n = ncol(data)
+e.weigths = rep(1/n,n)
+return(e.weigths)
+}
+
+computingweight=function(data,obstart,wl,q,method=c("equal","ordinary")){
+  
+  if (method=="equal")
+  {equalweights(data)
+  } else if
+  (method=="ordinary"){
+    computationofweights(data,obstart,wl,q)
+  } else {
+    print("select a method between 'equal' or 'ordinary'")
+  }
+}
+
+
+#firstempt=computingweight(time.series,0,200,1,method="ordinary")
+#firstempt2=computingweight(time.series,0,200,0,method="equal")
+
+returns_ordinary=function(data,obstart,wl,q){
+  n.col  = ncol(data)
+  
+  n.returns  = nrow(data)-wl-obstart
+  cum.ret.matrix = matrix(nrow=n.returns,ncol=1)
+  sharp.rat.matrix = matrix(nrow=n.returns,ncol=1)
+  
+  last.point = nrow(data)-wl-1 
+  
+  for (i in obstart:last.point)
+  {  last.int.obs = i+wl-1 
+  
+  sdata = data[i:last.int.obs,]
+  
+  
+  sweights = computationofweights(sdata,0,nrow(sdata),q)
+  log.data = log(sdata)
+  log.variation = diff(log.data)
+  log.ret = na.omit(log.variation)
+  #print(head(log.ret))
+  #print(sweights)
+  #print(log.ret)
+  ret.weighted = log.ret%*%sweights
+  print(head(ret.weighted))
+  mean.ret.weig = mean(ret.weighted)
+  var.ret.weig = var(ret.weighted)
+  sd.ret.weig = sqrt(var.ret.weig)
+  sharp.ratio = mean.ret.weig/sd.ret.weig
+  cum.ret = tail(cumsum(ret.weighted),n=1)
+  #print(cum.ret)
+
+  #print("printing cumulative return")
+  #print(cum.ret)
+  j = i-obstart+1
+  cum.ret.matrix[j,] = cum.ret
+  sharp.rat.matrix[j,] = sharp.ratio
+  
+  }
+  
+  
+  print("I have printed ret.weighted and cum.ret")
+  
+  results = list(cum.ret=cum.ret.matrix,sharp.rat=sharp.rat.matrix)
+  return(results)
+  
+  
+}
+
+
+#firstempt3=returns_ordinary(time.series,0,200,1)
+
+#par(mfrow=c(2,1))
+#plot(firstempt3$cum.ret, type="l")
+#abline(h=0)
+#plot(log(time.series))
+
+returns_equally = function(data,obstart,wl,q){
+  n.col  = ncol(data)
+  n.returns  = nrow(data)-wl-obstart
+  cum.ret.matrix = matrix(nrow=n.returns,ncol=1)
+  sharp.rat.matrix = matrix(nrow=n.returns,ncol=1)
+  weights = equalweights(data)
+  
+  last.point = nrow(data)-wl-1 
+  for (i in obstart:last.point)
+  {  last.int.obs = i+wl-1 
+  sdata = data[i:last.int.obs,]
+  sweights = weights
+  log.data = log(sdata)
+  log.variation = diff(log.data)
+  log.ret = na.omit(log.variation)
+  ret.weighted = log.ret%*%sweights
+  
+  mean.ret.weig = mean(ret.weighted)
+  var.ret.weig = var(ret.weighted)
+  sd.ret.weig = sqrt(var.ret.weig)
+  sharp.ratio = mean.ret.weig/sd.ret.weig
+  
+  cum.ret = tail(cumsum(ret.weighted),n=1)
+  #print(cum.ret)
+  j = i-obstart+1
+  cum.ret.matrix[j,] = cum.ret
+  sharp.rat.matrix[j,] = sharp.ratio
+  }
+  
+  
+  print("I have printed ret.weighted and cum.ret")
+  results=list(cum.ret=cum.ret.matrix,sharp.rat=sharp.rat.matrix)
+  return(results)
+  
+}
+
+#firstempt4=returns_equally(time.series,0,200,1)
+
+comparison=function(data,obstart,wl,q,sharp=TRUE,cum.ret=TRUE){
+  
+  ret.ord = returns_ordinary(data,obstart,wl,q)
+  ret.eq = returns_equally(data,obstart,wl,q)
+  
+  if (cum.ret==TRUE & sharp==TRUE){
+    par(mfrow=c(3,1))
+  } 
+  
+  if (cum.ret==TRUE & sharp==FALSE){
+    par(mfrow=c(2,1))  
+  } 
+  
+  if (cum.ret==FALSE & sharp==TRUE){
+    par(mfrow=c(2,1))  
+  } 
+  
+  
+  if (cum.ret==TRUE){
+    
+    cum.ret.ord = ret.ord$cum.ret
+    #print(head(cum.ret.ord))
+    cum.ret.eq = ret.eq$cum.ret
+    #print(head(cum.ret.eq))
+    plot(cum.ret.ord, type="l", col="red", main="Cumultative returns comparison", xlab = "", ylab = "",  ylim=c(min(cum.ret.ord,cum.ret.eq,cum.ret.ord-cum.ret.eq),max(cum.ret.ord,cum.ret.eq,cum.ret.ord-cum.ret.eq)))
+    lines(cum.ret.eq, col="blue")
+    lines(cum.ret.ord-cum.ret.eq)
+    abline(h=0)
+  }
+  
+  if (sharp==TRUE){
+    sharp.ord = ret.ord$sharp.rat
+    sharp.eq = ret.eq$sharp.rat
+    plot(sharp.ord, type="l", col="red", main="Sharp Ratio comparison", xlab = "", ylab = "",  ylim=c(min(sharp.ord,sharp.eq,sharp.ord-sharp.eq),max(sharp.ord,sharp.eq,sharp.ord-sharp.eq)))
+    lines(sharp.eq, col="blue")
+    lines(sharp.ord-sharp.eq)
+    abline(h=0)
+    
+    
+    
+  }
+  
+  barplot(0,0,axes=FALSE)
+  legend("top", c("Difference between Markowitz Computation and Equally Weights", "Results computed by Markowitz Theory", "Results computed by Equally Weights"),
+         bty = "n",lwd=2, cex=1.2,y.intersp=0.6, col=c("black","red","blue"), lty=c(1,1,1))
+}
+
+#exectuting the function
+comparison(#insertherethenameoftimeseries,#specifyheretheinitialnumericalvalueofobservation,#specifyherethelengthofwindows,#specifyheretheriskappetitevalue)
+
+#example
+#comparison(time.series,0,1000,0)
